@@ -27,3 +27,4 @@ class AverageMeter(object):
 @torch.no_grad()
 def accuracy(output, target):
     # Implementation here ...
+    pass

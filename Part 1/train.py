@@ -3,78 +3,114 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
-
 import torch
-from torch.utils.data import DataLoader
 
+
+from torch.utils.data import DataLoader
+import torch.nn as nn
 from dataset import PalindromeDataset
 from lstm import LSTM
 from utils import AverageMeter, accuracy
+import torch.optim as optim
+import matplotlib.pyplot as plt
 
-
-def train(model, data_loader, optimizer, criterion, device, config):
+def train(model, data_loader, optimizer, criterion, config):
     # TODO set model to train mode
-    losses = AverageMeter("Loss")
-    accuracies = AverageMeter("Accuracy")
-    for step, (batch_inputs, batch_targets) in enumerate(data_loader):
-        # Add more code here ...
+    model = model.cuda()
+    acc = []
+    ll = []
+    for epoch in range(config.max_epoch):
+        correct = 0
+        total = 0
+        loss = 0
+        for _, (batch_inputs, batch_targets) in enumerate(data_loader):
+            # Add more code here ...
 
-        # the following line is to deal with exploding gradients
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(), max_norm=config.max_norm)
+            # the following line is to deal with exploding gradients
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm=config.max_norm)
+            batch_inputs = batch_inputs.cuda()
+            batch_targets = batch_targets.cuda()
+            outputs = model(batch_inputs)
+            optimizer.zero_grad()
+            l = criterion(outputs, batch_targets)
+            l.backward(retain_graph=True)
+            optimizer.step()
+            loss += l.item()
+            _, ans = torch.max(outputs.data, dim=1)
+            total += batch_targets.size(0)
+            correct += (ans == batch_targets).sum().item()
+        ll.append(loss / len(data_loader))
+        acc.append(correct / total)
+        optimizer.zero_grad()
+    plt.plot(config.max_epoch, ll, label='train_loss')
+    plt.plot(config.max_epoch, acc, label="train_acc")
+    plt.legend()
+    plt.title(f'seq_length={config.input_length}, train')
+    plt.show()
 
-        # Add more code here ...
-        if step % 10 == 0:
-            print(f'[{step}/{len(data_loader)}]', losses, accuracies)
-    return losses.avg, accuracies.avg
 
 
 @torch.no_grad()
 def evaluate(model, data_loader, criterion, device, config):
     # TODO set model to evaluation mode
-    losses = AverageMeter("Loss")
-    accuracies = AverageMeter("Accuracy")
+    model = model.eval()
+    model = model.to(device)
+    loss = 0
+    correct = 0
+    total = 0
     for step, (batch_inputs, batch_targets) in enumerate(data_loader):
         # Add more code here ...
-        if step % 10 == 0:
-            print(f'[{step}/{len(data_loader)}]', losses, accuracies)
-    return losses.avg, accuracies.avg
+        if len(batch_targets) < config.batch_size:
+            break
+        batch_inputs = batch_inputs.to(device)
+        batch_targets = batch_targets.to(device)
+
+        outputs = model(batch_inputs)
+
+        loss += criterion(outputs, batch_targets).item()
+
+        _, ans = torch.max(outputs.data, 1)
+        total += batch_targets.size(0)
+        correct += (ans == batch_targets).sum().item()
+
+        if step % 10 == 1:
+            print(f'[{step}/{len(data_loader)}]', loss / step, correct / total)
+    return loss / len(data_loader), correct / total
 
 
 def main(config):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
     # Initialize the model that we are going to use
-    model = ...  # fixme
+    model = LSTM(config.input_length, config.input_dim, config.num_hidden, config.num_classes,
+                 config.batch_size)  # fixme
     model.to(device)
 
     # Initialize the dataset and data loader
-    dataset = ...  # fixme
+    # dataset =   # fixme
     # Split dataset into train and validation sets
-    train_dataset, val_dataset = ...  # fixme
+    train_dataset = PalindromeDataset(config.input_length, int(config.data_size * config.portion_train))  # fixme
+    val_dataset = PalindromeDataset(config.input_length, int(config.data_size * (1 - config.portion_train)))
     # Create data loaders for training and validation
-    train_dloader = ...  # fixme
-    val_dloader = ...  # fixme
+    train_dloader = DataLoader(train_dataset, config.batch_size)  # fixme
+    val_dloader = DataLoader(val_dataset, config.batch_size)  # fixme
 
-    # Setup the loss and optimizer
-    criterion = ...  # fixme
-    optimizer = ...  # fixme
-    scheduler = ...  # fixme
+    # Set up the loss and optimizer
+    criterion = nn.CrossEntropyLoss()  # fixme
+    optimizer = optim.RMSprop(model.parameters(), lr=config.learning_rate)  # fixme
+    # scheduler = ...  # 不知道这是什么
 
-    for epoch in range(config.max_epoch):
+
         # Train the model for one epoch
-        train_loss, train_acc = train(
-            model, train_dloader, optimizer, criterion, device, config)
+    train(model, train_dloader, optimizer, criterion, config)
 
         # Evaluate the trained model on the validation set
-        val_loss, val_acc = evaluate(
-            model, val_dloader, criterion, device, config)
+    evaluate( model, val_dloader, criterion, device, config)
 
     print('Done training.')
 
 
 if __name__ == "__main__":
-
     # Parse training configuration
     parser = argparse.ArgumentParser()
 
